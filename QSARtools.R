@@ -1,6 +1,6 @@
 #make a list of matrices for various fps
 #fps that work - maccs circular standard estate(simple) kr(slow) shortestpath signature(doesn't work)
-fpmatlist <-  as.list(c("maccs", "circular", "standard", "extended"))
+fpmatlist <-  as.list(c("circular", "standard", "extended"))
 
 fpreturn <- function(fplist, cmpdlist){
   fptest <- get.fingerprint(cmpdlist[[1]], type = fplist, fp.mode = 'bit')
@@ -16,9 +16,9 @@ fpreturn <- function(fplist, cmpdlist){
 
 #generates a list of fingerprint matrices from input IAtomContainers
 generatefpmatlist <- function(containerinput){
-  fpmatlist <-  as.list(c("maccs", "circular", "standard", "extended"))
+  fpmatlist <-  as.list(c("circular", "standard", "extended"))
   fpmatrixlist <- lapply(fpmatlist, fpreturn, cmpdlist = containerinput)
-  names(fpmatrixlist) <- c("maccs", "circular", "standard", "extended")
+  names(fpmatrixlist) <- c("circular", "standard", "extended")
   return(fpmatrixlist)
 }
 
@@ -30,20 +30,19 @@ getmodelfromfp <- function(ydata, xdata){
   trainIndex <- createDataPartition(ydata, p=.75, list=FALSE)
   y.tr <- ydata[trainIndex]
   y.te <- ydata[-trainIndex]
-  
-  ctrl <- trainControl(method = 'cv', number = 10, repeats = 5, 
-                       summaryFunction = defaultSummary)
-  trainvector <- c("gbm", "pls", "svmRadial", "svmLinear", "svmPoly")
+  trainvector <- c("gbm", "svmPoly", "pls", "ranger")
   resultsmatrix <- matrix(data = NA, nrow = length(trainvector), ncol = length(fpmatrixlist))
   rownames(resultsmatrix) <- trainvector
   colnames(resultsmatrix) <- as.vector(names(fpmatrixlist))
   ctrl <- trainControl(method = 'cv', number = 10, repeats = 5, 
                        summaryFunction = defaultSummary)
+  #ctrl <- trainControl(method = "boot",
+  #                     summaryFunction = defaultSummary) 
   for(n in 1:length(fpmatrixlist)){
     x1.tr <- fpmatrixlist[[n]][trainIndex, ]
     x1.te <- fpmatrixlist[[n]][-trainIndex, ]
     for (i in 1:length(trainvector)){
-      svm.fit1 <- train(x1.tr, y.tr, method = trainvector[i], trControl = ctrl, 
+      svm.fit1 <- train(x1.tr, y.tr, method = trainvector[i], trControl = ctrl, tuneLength = 10,
                         metric = 'RMSE')
       pred.activity <- predict(svm.fit1, newdata = x1.te)
       resultsmatrix[i, n] <- mean((predict(svm.fit1, newdata = x1.te)-y.te)^2)
@@ -55,7 +54,7 @@ getmodelfromfp <- function(ydata, xdata){
   bestfpidx <- which(resultsmatrix == min(resultsmatrix), arr.ind = TRUE)[2]
   x1.tr <- fpmatrixlist[[bestfpidx]][trainIndex, ]
   x1.te <- fpmatrixlist[[bestfpidx]][-trainIndex, ]
-  bestfit <- train(x1.tr, y.tr, method = trainvector[besttrainidx], trControl = ctrl, 
+  bestfit <- train(x1.tr, y.tr, method = trainvector[besttrainidx], trControl = ctrl, tuneLength = 10
                    metric = 'RMSE')
   attr(bestfit, "BestTrain") <- trainvector[besttrainidx]
   attr(bestfit, "BestFP") <- names(fpmatrixlist)[bestfpidx]
@@ -96,8 +95,24 @@ predictfromsmiles <- function(data.x, NewSmilesIN, bestmodel){
     fp <- get.fingerprint(containers.predict[[i]], type = attr(bestmodel, "BestFP"), fp.mode = 'bit')
     fpmatrix.predict[i, attr(fp, "bits")] <- 1
   }
-  fpmatrix.predict <- fpmatrix.predict[, -matrixloss]
+  fpmatrix.predict <- fpmatrix.predict[, -matrixloss]  
   
   predictvector <- predict(bestmodel, fpmatrix.predict)
   return(predictvector)
 }
+
+rfcircularmodel <- function(ydata, xdata){
+  containerstrain <- parse.smiles(xdata)
+  fpmatrixlist <- fpreturn("circular", containerstrain)
+  ctrl <- trainControl(method = 'cv', number = 10, repeats = 5, 
+                       summaryFunction = defaultSummary)
+  fit1 <- train(fpmatrixlist, ydata, method = "ranger", trControl = ctrl, tuneLength = 10,
+                    metric = 'RMSE')
+  attr(fit1, "BestTrain") <- "ranger"
+  attr(fit1, "BestFP") <- "circular"
+  dev.new()
+  plot(ydata, predict(bestfit, fpmatrixlist), xlim = range(ydata), ylim = range(ydata))
+  return(fit1)
+}
+  
+  

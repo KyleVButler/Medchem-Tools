@@ -12,7 +12,7 @@ source("QSARtools.R")
 #Functions are found in QSARtools.R
 
 
-#can start here from my csv file
+#can start here from my csv file    
 smilesheatmap <- read.csv("heatmapsmilescmpdid.csv", header = TRUE)
 #Any target in the heatmapdata will work
 target <- "PLK4"
@@ -28,13 +28,23 @@ set.seed(1)
 
 data.x <- as.character(smilesheatmap$SMILES)
 #getmodelfromfp gives a model and accepts two arguments, a vector of data and a vector of smiles
-#Calculates models using various fingerprints ("maccs", "circular", "standard", "extended") and various learning 
-#methods ("gbm", "pls", "svmRadial", "svmLinear", "svmPoly") and returns the model for the pair with the lowest test MSE
+#Calculates models using various fingerprints ("circular", "standard", "extended") and various learning 
+#methods ("gbm", "pls", "svmPoly", "ranger") and returns the model for the pair with the 
+#lowest test MSE   -- MAY BE SLOW
 bestmodel <- getmodelfromfp(data.y, data.x)
-
+dev.new()
+plot(bestmodel)
 
 #some test compounds to predict - the first 4 should be PLK4 inhibitors, the last 5 should not
 NewSmilesIN <- read.csv("PREDICTPLK4.csv", header = TRUE)
 
 #this function will get a vector of predicted data from the original training SMILES, new SMILES for predictions, and the model
 predictfromsmiles(data.x = data.x, NewSmilesIN = NewSmilesIN, bestmodel = bestmodel)
+
+#Makes a model with random forest and circular fingerprints
+bestmodel <- rfcircularmodel(data.y, data.x)
+plot(bestmodel)
+NewSmilesIN <- read.csv("PREDICTPLK4.csv", header = TRUE)
+predictfromsmiles(data.x = data.x, NewSmilesIN = NewSmilesIN, bestmodel = bestmodel)
+
+
