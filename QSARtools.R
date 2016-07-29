@@ -54,7 +54,7 @@ getmodelfromfp <- function(ydata, xdata){
   bestfpidx <- which(resultsmatrix == min(resultsmatrix), arr.ind = TRUE)[2]
   x1.tr <- fpmatrixlist[[bestfpidx]][trainIndex, ]
   x1.te <- fpmatrixlist[[bestfpidx]][-trainIndex, ]
-  bestfit <- train(x1.tr, y.tr, method = trainvector[besttrainidx], trControl = ctrl, tuneLength = 10
+  bestfit <- train(x1.tr, y.tr, method = trainvector[besttrainidx], trControl = ctrl, tuneLength = 10,
                    metric = 'RMSE')
   attr(bestfit, "BestTrain") <- trainvector[besttrainidx]
   attr(bestfit, "BestFP") <- names(fpmatrixlist)[bestfpidx]
