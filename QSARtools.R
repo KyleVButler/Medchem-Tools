@@ -111,8 +111,119 @@ rfcircularmodel <- function(ydata, xdata){
   attr(fit1, "BestTrain") <- "ranger"
   attr(fit1, "BestFP") <- "circular"
   dev.new()
-  plot(ydata, predict(bestfit, fpmatrixlist), xlim = range(ydata), ylim = range(ydata))
+  plot(ydata, predict(fit1, fpmatrixlist), xlim = range(ydata), ylim = range(ydata))
+  abline(a = 0, b = 1)
   return(fit1)
 }
   
+
+getclassmodel <- function(ydata, xdata, classmethod){
+  containerstrain <- parse.smiles(xdata)
+  x <- circularfp(containerstrain)
+  y <- ydata
+  ctrl <- trainControl(method = 'cv', number = 10, repeats = 5, 
+                       classProbs = TRUE, summaryFunction = twoClassSummary)
+  #ctrl <- trainControl(method = 'boot', 
+  #                     classProbs = TRUE, summaryFunction = twoClassSummary)
+  svm.fit1 <- train(x, y, method = classmethod, trControl = ctrl, tuneLength = 10,
+                    metric = 'ROC')
+  print(svm.fit1)
+  return(svm.fit1)
+}
+
+gbmclassmodel <- function(ydata, xdata, classmethod){
+  containerstrain <- parse.smiles(xdata)
+  x <- circularfp(containerstrain)
+  y <- ydata
+  ctrl <- trainControl(method = 'cv', number = 10, repeats = 5, 
+                       classProbs = TRUE, summaryFunction = twoClassSummary)
+  #grid <- expand.grid(.n.trees = seq(50, 500, by = 50), .interaction.depth = 5:10, .shrinkage = c(0.001, 0.1),
+  #                    .n.minobsinnode = c(10))
+  svm.fit1 <- train(x, y, method = "gbm", trControl = ctrl, tuneLength = 10,
+                    metric = 'ROC')
+  print(svm.fit1)
+  return(svm.fit1)
+}
+
+circularfp <- function(cmpdlist){
+  fptest <- get.fingerprint(cmpdlist[[1]], type = "circular", fp.mode = 'bit')
+  fpmatrix <- matrix(data = 0, nrow = length(cmpdlist), ncol = attr(fptest, "nbit"))
+  for(i in 1:length(cmpdlist)){
+    fp <- get.fingerprint(cmpdlist[[i]], type = "circular", fp.mode = 'bit')
+    fpmatrix[i, attr(fp, "bits")] <- 1
+  }
+  fpmatrix <- fpmatrix[, -nearZeroVar(fpmatrix)]
   
+  return(fpmatrix)
+}
+
+classpredictfromsmiles <- function(data.x, NewSmilesIN, bestmodel){
+  containers <- parse.smiles(data.x)
+  fptest <- get.fingerprint(containers[[1]], type = "circular", fp.mode = 'bit')
+  bitl <- attr(fptest, "nbit")
+  fpmatrix <- matrix(data = 0, nrow = length(containers), ncol = bitl)
+  for(i in 1:length(containers)){
+    fp <- get.fingerprint(containers[[i]], type = "circular", fp.mode = 'bit')
+    fpmatrix[i, attr(fp, "bits")] <- 1
+  }
+  matrixloss <- nearZeroVar(fpmatrix)
+  fpmatrix <- fpmatrix[, -matrixloss]
+  
+  containers.predict <- parse.smiles(as.character(NewSmilesIN$SMILES))
+  fptest <- get.fingerprint(containers.predict[[1]], type = "circular", fp.mode = 'bit')
+  bitl <- attr(fptest, "nbit")
+  fpmatrix.predict <- matrix(data = 0, nrow = length(containers.predict), ncol = bitl)
+  for(i in 1:length(containers.predict)){
+    fp <- get.fingerprint(containers.predict[[i]], type = "circular", fp.mode = 'bit')
+    fpmatrix.predict[i, attr(fp, "bits")] <- 1
+  }
+  fpmatrix.predict <- fpmatrix.predict[, -matrixloss]
+  
+  predictprobs <- predict(bestmodel, newdata = fpmatrix.predict, type = "prob")
+  predictvec <- predict(bestmodel, newdata = fpmatrix.predict)
+  predictions <- data.frame(predictprobs, predictvec)
+  return(predictions)
+}
+
+
+gbmcircularregmodel <- function(ydata, xdata){
+  containerstrain <- parse.smiles(xdata)
+  fpmatrixlist <- fpreturn("circular", containerstrain)
+  ctrl <- trainControl(method = 'cv', number = 10, repeats = 4, 
+                       summaryFunction = defaultSummary)
+  grid <- expand.grid(n.trees = seq(50, 500, 50), interaction.depth = 5:10, shrinkage = 0.1, n.minobsinnode = 10)
+  fit1 <- train(fpmatrixlist, ydata, method = "gbm", trControl = ctrl, tuneGrid = grid,
+                metric = 'RMSE')
+  dev.new()
+  plot(ydata, predict(fit1, fpmatrixlist), xlim = range(ydata), ylim = range(ydata))
+  abline(a = 0, b = 1)
+  return(fit1)
+}
+
+#data.x is the smiles string used to build bestmodel, it must be added so that the same nearZeroVar are removed from NewSmilesIN
+
+gbmcircularregpredict <- function(data.x, NewSmilesIN, bestmodel){
+  containers <- parse.smiles(data.x)
+  fptest <- get.fingerprint(containers[[1]], type = "circular", fp.mode = 'bit')
+  bitl <- attr(fptest, "nbit")
+  fpmatrix <- matrix(data = 0, nrow = length(containers), ncol = bitl)
+  for(i in 1:length(containers)){
+    fp <- get.fingerprint(containers[[i]], type = "circular", fp.mode = 'bit')
+    fpmatrix[i, attr(fp, "bits")] <- 1
+  }
+  matrixloss <- nearZeroVar(fpmatrix)
+  fpmatrix <- fpmatrix[, -matrixloss]
+  
+  containers.predict <- parse.smiles(as.character(NewSmilesIN))
+  fptest <- get.fingerprint(containers.predict[[1]], type = "circular", fp.mode = 'bit')
+  bitl <- attr(fptest, "nbit")
+  fpmatrix.predict <- matrix(data = 0, nrow = length(containers.predict), ncol = bitl)
+  for(i in 1:length(containers.predict)){
+    fp <- get.fingerprint(containers.predict[[i]], type = "circular", fp.mode = 'bit')
+    fpmatrix.predict[i, attr(fp, "bits")] <- 1
+  }
+  fpmatrix.predict <- fpmatrix.predict[, -matrixloss]  
+  
+  predictvector <- predict(bestmodel, fpmatrix.predict)
+  return(predictvector)
+}
