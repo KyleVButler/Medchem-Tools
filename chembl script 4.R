@@ -91,17 +91,21 @@ activities_collected_temp <- activities_collected
 #so how to find the compounds... there will be two groups, those that have selectivity data and those that do not...
 #there are also two groups of probes, ones that are selective for a single protein, and those that are selective for 2-3 isoforms first group first
 # remember to remove all value <= 1 when subsettimnmg selectivity values
-cmpdstokeep <- activities_collected %>% filter(standard_type == "Selectivity ratio" | standard_type == "Ratio IC50" | 
-                                                 standard_type == "Fold selectivity") %>% filter(standard_value > 30) %>% select(molregno)
+cmpdstokeep <- activities_collected %>% filter(standard_type %in% c("Selectivity ratio", "Ratio IC50", "Ratio", "Ratio Ki", "Fold selectivity") & 
+                                                 assay_type == "B" & standard_value > 30) %>% select(molregno)
 activities_collected_selectivity <- filter(activities_collected, molregno %in% unique(cmpdstokeep$molregno))
 dim(activities_collected_selectivity)
 length(unique(activities_collected_selectivity$molregno))
 #find compounds that have no selectivity values between 1 and 30
-cmpdstokeep <- activities_collected_selectivity %>% filter(standard_type == "Selectivity ratio" | standard_type == "Ratio IC50" | 
-                                                             standard_type == "Fold selectivity") %>% 
-  filter(standard_value < 30 & standard_value > 1) %>% select(molregno)
+cmpdstokeep <- activities_collected_selectivity %>% filter(standard_type %in% c("Selectivity ratio", "Ratio IC50", "Ratio", "Ratio Ki", "Fold selectivity") & 
+                                                             assay_type == "B") %>% 
+  filter(standard_value < 30 & standard_value > 1 | standard_value < 1) %>% select(molregno)
 activities_collected_selectivity <- filter(activities_collected_selectivity, !(molregno %in% unique(cmpdstokeep$molregno)))
-#get minimum potency (nM) values for each molecule/target pair and remove cytochromes
+#get minimum potency (nM) values for each molecule/target pair and remove cytochromes  
+
+##
+## should also remove herg and pgp
+##
 test <- activities_collected_selectivity %>% filter(target_type == "SINGLE PROTEIN" & organism == "Homo sapiens" & confidence_score == 9 &
                                                       standard_units == "nM") %>% group_by(molregno, pref_name) %>% 
   summarize(min_value = min(standard_value)) %>% filter(substr(pref_name, 1, 7) != "Cytochr")
@@ -145,17 +149,17 @@ potential_probes_group1$group <- rep(1, nrow(potential_probes_group1))
 
 
 #now to get compounds active against 2 isoforms but have positive selectivity data
-cmpdstokeep <- activities_collected %>% filter(standard_type == "Selectivity ratio" | standard_type == "Ratio IC50" | 
-                                                 standard_type == "Fold selectivity") %>% filter(standard_value > 30) %>% select(molregno)
+cmpdstokeep <- activities_collected %>% filter(standard_type %in% c("Selectivity ratio", "Ratio IC50", "Ratio", "Ratio Ki", "Fold selectivity") & 
+                                                 assay_type == "B" & standard_value > 30) %>% select(molregno)
 cmpdstokeep <- unique(cmpdstokeep$molregno)
 activities_collected_selectivity <- filter(activities_collected, molregno %in% cmpdstokeep)
 dim(activities_collected_selectivity)
 length(unique(activities_collected_selectivity$molregno))
 #3507 compounds have shown >30 fold selectivity against any other protein
 #find compounds that have no more than 1 selectivity values between 1 and 30
-cmpdstokeep <- activities_collected_selectivity %>% filter(standard_type == "Selectivity ratio" | standard_type == "Ratio IC50" | 
-                                                             standard_type == "Fold selectivity") %>% 
-  filter(standard_value < 30 & standard_value > 1) %>% count(molregno) %>% filter(n >= 1)
+cmpdstokeep <- activities_collected_selectivity %>% filter(standard_type %in% c("Selectivity ratio", "Ratio IC50", "Ratio", "Ratio Ki", "Fold selectivity") & 
+                                                             assay_type == "B") %>% 
+  filter(standard_value < 30 & standard_value > 1 | standard_value < 1) %>% count(molregno) %>% filter(n > 1)
 activities_collected_selectivity <- filter(activities_collected_selectivity, !(molregno %in% cmpdstokeep$molregno))
 #get min potency (nM) values for each molecule/target pair and remove cytochromes
 test <- activities_collected_selectivity %>% filter(target_type == "SINGLE PROTEIN" & organism == "Homo sapiens" & confidence_score == 9 &
@@ -225,11 +229,9 @@ potential_probes <- rbind(potential_probes, potential_probes_group2)
 
 
 #addition of group 3 below - compounds have no selectivity data
-cmpdstokeep <- activities_collected %>% filter(standard_type == "Selectivity ratio" | standard_type == "Ratio IC50" | 
-                                                 standard_type == "Fold selectivity") %>% filter(standard_value > 30) %>% select(molregno)
+cmpdstokeep <- activities_collected %>% filter(standard_type %in% c("Selectivity ratio", "Ratio IC50", "Ratio", "Ratio Ki", "Fold selectivity") & 
+                                                 assay_type == "B") %>% select(molregno)
 activities_collected_noselectivity <- activities_collected %>% filter(!(molregno %in% unique(cmpdstokeep$molregno)))
-dim(activities_collected_noselectivity)
-length(unique(activities_collected_noselectivity$molregno))
 #get average potency (nM) values for each molecule/target pair 
 test <- activities_collected_noselectivity %>% filter(target_type == "SINGLE PROTEIN" & organism == "Homo sapiens" & confidence_score == 9 &
                                                         standard_units == "nM") %>% group_by(molregno, pref_name) %>% 
@@ -279,11 +281,10 @@ potential_probes <- rbind(potential_probes, potential_probes_group3)
 
 #should i find more probes that may have two homologous targets?
 #addition of group 4 below - compounds have no selectivity data
-cmpdstokeep <- activities_collected %>% filter(standard_type == "Selectivity ratio" | standard_type == "Ratio IC50" | 
-                                                 standard_type == "Fold selectivity") %>% filter(standard_value > 30) %>% select(molregno)
+cmpdstokeep <- activities_collected %>% filter(standard_type %in% c("Selectivity ratio", "Ratio IC50", "Ratio", "Ratio Ki", "Fold selectivity") & 
+                                                 assay_type == "B") %>% select(molregno)
 activities_collected_noselectivity <- activities_collected %>% filter(!(molregno %in% unique(cmpdstokeep$molregno)))
-dim(activities_collected_noselectivity)
-length(unique(activities_collected_noselectivity$molregno))
+
 #get average potency (nM) values for each molecule/target pair 
 test <- activities_collected_noselectivity %>% filter(target_type == "SINGLE PROTEIN" & organism == "Homo sapiens" & confidence_score == 9 &
                                                         standard_units == "nM") %>% group_by(molregno, pref_name) %>% 
@@ -376,11 +377,7 @@ potential_probes <- full_join(potential_probes, join_vector, by = "molregno")
 
 #could filter out MW>1000
 #PAINS filter
-library(ChemmineR)
-library(ChemmineOB)
-smiset <- as(potential_probes$canonical_smiles, "SMIset") 
-cid(smiset) <- potential_probes$molregno
-write.SMI(smiset, file="sub.smi", cid=TRUE) 
+
 # i copied all into the variable xx
 length(unique(potential_probes$molregno))
 potential_probes <- filter(potential_probes, !(molregno %in% xx))
@@ -399,7 +396,19 @@ sgcprobes <- sgcprobes %>% mutate(group = 0)
 probe_list <- potential_probes %>% mutate(CHEMICAL_ID = chembl_id) %>% dplyr::select(CHEMICAL_ID, pref_name, accession, group)
 probe_list <- bind_rows(list(sgcprobes, probe_list))
 probe_list <- dplyr::select(probe_list, -PROTEIN_NAME)
+probe_list %>% group_by(group) %>% summarise(Unique_Elements = n_distinct(pref_name)) 
+probe_list %>% group_by(group) %>% summarise(Unique_Elements = n_distinct(CHEMICAL_ID)) 
+
 write_csv(probe_list, "PROBELIST.csv")
+probe_list <- read_csv("PROBELIST.csv")
+
+
+probe_list %>% group_by(group) %>% summarise(N_Targets = n_distinct(pref_name)) 
+probe_list %>% group_by(group) %>% summarise(N_Probes = n_distinct(CHEMICAL_ID)) 
+
+#different species information causes problems, check CHEMBL2204357
+#check if this makes sense:   filter(standard_value < 30 & standard_value > 1 | standard_value < 1)
+
 #make list for protein annotation
 protein_accessions <- tibble(accessions = unique(probe_list$accession))
 
