@@ -2,8 +2,8 @@
 #requires chembl_22.db 
 #This function uses circular fingerprints from rcdk package and 
 #the xgbtree learning method.
-#Returns a model with the dropped elements of the fingerprint matrix
-#in attribute "LostColumns".
+#Returns a model with the columns of the fingerprint matrix
+#removed because of near-zero variance in attribute "LostColumns".
 #Two arguments are required - path_to_chembl (e.g. "/home/kb/Desktop/chembl/chembl_22.db"),
 #and the target protein used to build the model in uniprot format, e.g. "P14416"
 
