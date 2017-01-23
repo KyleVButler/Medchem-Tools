@@ -2,8 +2,8 @@
 #requires chembl_22.db 
 #This function uses circular fingerprints from rcdk package and 
 #the xgbtree learning method.
-#Returns a model with the columns of the fingerprint matrix
-#removed because of near-zero variance in attribute "LostColumns".
+#Returns a model with the dropped elements of the fingerprint matrix
+#in attribute "LostColumns".
 #Two arguments are required - path_to_chembl (e.g. "/home/kb/Desktop/chembl/chembl_22.db"),
 #and the target protein used to build the model in uniprot format, e.g. "P14416"
 
@@ -44,8 +44,9 @@ molecules <- compound_structures %>% select(molregno, canonical_smiles) %>% filt
 molecules <- collect(molecules, n = Inf)
 bioactivities <- left_join(bioactivities, molecules, by = "molregno")
 
-#only use the maximum bioactivity for each molecule, then remove those containers that are NA
-bioactivities <- bioactivities %>% group_by(molregno) %>% arrange(desc(pIC50)) %>% slice(1)
+#find mean bioactivity for each molecule, then remove those containers that are NA
+bioactivities <- bioactivities %>% group_by(molregno, canonical_smiles) %>% 
+  summarize(averagepIC50 = mean(pIC50)) %>% ungroup()
 containersTrain <- parse.smiles(bioactivities$canonical_smiles)
 bioactivities <- bioactivities[!is.na(containersTrain),]
 containersTrain <- containersTrain[!is.na(containersTrain)]
@@ -72,9 +73,17 @@ str(fingerprints)
 ctrl <- trainControl(method = 'cv', number = 5, repeats = 3, 
                      summaryFunction = defaultSummary)
 
-xgboost.fit1 <- train(fingerprints, bioactivities$pIC50, method = "xgbTree", trControl = ctrl, tuneLength = 10,
+xgboost.fit1 <- train(fingerprints, bioactivities$averagepIC50, method = "xgbTree", trControl = ctrl, tuneLength = 10,
                   metric = 'RMSE')
+print(summary(xgboost.fit1))
 attr(xgboost.fit1, "fingerprintMethod") <- "circular"
 attr(xgboost.fit1, "LostColumns") <- attr(fingerprints, "LostColumns")
+attr(xgboost.fit1, "TargetUniprot") <- target
+dev.new()
+plot(bioactivities$averagepIC50, predict(xgboost.fit1, fingerprints), xlim = range(bioactivities$averagepIC50), 
+     ylim = range(bioactivities$averagepIC50), 
+     main = paste("Diagnostic plot for: ", 
+                  attr(xgboost.fit1, "TargetUniprot")), xlab = "Data", ylab = "Predicted", cex = 0.2)
+abline(a = 0, b = 1)
 return(xgboost.fit1)
 }
