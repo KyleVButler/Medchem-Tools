@@ -1,0 +1,101 @@
+---
+title: "PCMexample"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Proteochemometric Modeling Example
+
+We will use some of the functions in QSARtools.R to build a proteochemometric model (PCM). This model is useful in chemical bioactivity prediction. Say you have a number of related proteins, and activities for many chemicals at those proteins. The proteochemometric model uses information from the protein sequence and the chemical structure to predict chemical bioactivity. This is useful when you want to find compounds active at a protein related to those used to build the model. Here is a recent review:  Med. Chem. Commun., 2011,2, 16-30; DOI: 10.1039/C0MD00165A 
+
+We are going to use the Published Kinase Inhibitor dataset to build the model. The data comes from: Nat Biotechnol. 2016 Jan;34(1):95-103. doi: 10.1038/nbt.3374.
+
+First, let's load the packages, the functions, and the datasets we will use.
+```{r}
+require(rcdk)
+require(Rcpi)
+require(caret)
+require(dplyr)
+require(reshape2)
+library(xgboost)
+source("QSARtools.R")
+heatmap <- read.csv("heatmapsmilescmpdid.csv", header = TRUE, stringsAsFactors = FALSE)
+```
+
+
+We will use the thermal shift assay data. I convert the SMILES strings for compounds into circular fingerprints. The heatmap data is melted into long format, and joined with the fingerprints. Because I am not sure of any linear relationship between the thermal shift and affinity, I convert this response variable into a factor, "A" for active and "N" for not active, where any compound with a thermal shift of over 2 is active.
+
+```{r}
+heatmapclass <- select(heatmap, -c(Compound.ID, SMILES))
+heatmapclass <- mutate_each(heatmapclass, funs(ifelse(. >=2, "A", "N")))
+table(as.matrix(heatmapclass))
+heatmapclass <- data.frame(SMILES = heatmap$SMILES, heatmapclass)
+
+#see what maindata looks like
+knitr::kable(maindata[1:5, 1:5])
+SMILES <- heatmapclass$SMILES
+containers <- parse.smiles(SMILES)
+circlefpmatrix <- circularFP(containers)
+smileswithfp <- data.frame(SMILES, circlefpmatrix)
+smileswithfp$SMILES <- as.character(smileswithfp$SMILES)
+
+nrow(smileswithfp) == length(SMILES)
+maindata <- melt(heatmapclass, id.vars = "SMILES", na.rm = TRUE)
+maindata <- left_join(maindata, smileswithfp, by="SMILES")
+
+```
+
+To convert the different proteins into numerical descriptors for the PCM, I obtained a list of the residues in the ATP binding site for each protein from this publicaiton:  Bioinformatics (2009) 26 (2): 198-204. DOI:https://doi.org/10.1093/bioinformatics/btp650
+
+These sequences are found in protseq.csv
+
+I will turn these sequences into BLOSUM scores, with k = 5 and lag = 7. I have not tried different values or different ways to describe the sequences, so this part of the method could be optimized. The blosum scores are centered and scaled. 
+```{r}
+prot_seq <- read.csv("protseq.csv", header = TRUE, stringsAsFactors = FALSE)
+blosummatrix <- matrix(0, nrow = 60, ncol = 175)
+for(i in 1:nrow(prot_seq)){
+  blosummatrix[i, ] <- extractPCMBLOSUM(prot_seq[i, 2], k = 5, lag = 7, scale = TRUE)
+}
+blosummatrix <- data.frame(blosummatrix)
+preProcValues <- preProcess(blosummatrix, method = c("center", "scale"))
+
+blosummatrix_transformed <- predict(preProcValues, blosummatrix)
+blosummatrix  <- blosummatrix [, -nearZeroVar(blosummatrix)]
+blosummatrix <- data.frame(variable = prot_seq$Kinase, blosummatrix_transformed)
+blosummatrix$variable <- as.character(blosummatrix$variable)
+maindata$variable <- as.character(maindata$variable)
+maindata <- left_join(maindata, blosummatrix, by = "variable")
+maindata <- maindata[complete.cases(maindata), ]
+
+```
+I am going to put the data for the "PLK4" protein into a test set, so we can use it for prediction
+
+```{r}
+plk4_test <- maindata %>% filter(variable == "PLK4")
+maindata <- maindata %>% filter(variable != "PLK4")
+
+```
+
+After removing variables with near-zero variance, this leaves us with 431 predictor variables for each bioactivity. Now let's make the model. We will train with caret and use kernelpls to save time and because predictors are highly correlated
+
+```{r}
+ctrl <- trainControl(method = 'repeatedcv', number = 5, repeats = 2, 
+                       classProbs = TRUE, summaryFunction = twoClassSummary)
+caret_model <- train(maindata[, 4:ncol(maindata)], maindata$value, method = "kernelpls", trControl = ctrl, tuneLength =   20, metric = 'ROC')
+plot(caret_model)
+whichTwoPct <- tolerance(caret_model$results, metric = "ROC", 
+                         tol = 2, maximize = TRUE)  
+# train the model with the simplest model within 2% ROC from best model
+caret_grid <-  expand.grid(ncomp = whichTwoPct[1])
+caret_model <- train(maindata[, 4:ncol(maindata)], maindata$value, method = "kernelpls",     trControl = ctrl, tuneGrid = caret_grid, metric = 'ROC')
+
+```
+Now let's look at the PLK4 results and see how our model works...
+```{r}
+confusionMatrix(data = predict(caret_model, plk4_test[, 4:ncol(plk4_test)]), reference = plk4_test$value)
+
+```
+The model has a very hard time predicting actives at all, even falsely. That is true of almost all proteins using this method. I think the problem has to do with the protein residues used to create the blosum scores. 
