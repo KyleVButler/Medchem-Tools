@@ -1,0 +1,106 @@
+---
+title: "QSAR with ChEMBL data"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## QSAR
+
+Here, I will build a quantitative structure activity relationship model to predict chemical bioactivity for a protein of interest. The data will come from the ChEMBL database, an SQL database that contains bioactivities for many different proteins. The ChEMBL database must be downloaded from: https://www.ebi.ac.uk/chembl/  I will make a QSAR model for the BRAF cancer target. 
+
+```{r cars}
+library(dplyr)
+library(caret)
+library(xgboost)
+require(rcdk)
+require(Rcpi)
+
+path_to_chembl <- "/home/kb/Desktop/chembl/chembl_22.db"
+target <- "P15056"
+
+chembl_db <- src_sqlite(path_to_chembl, create = TRUE)
+
+```
+
+
+Now I will extract the relevant data from the SQL database.
+
+```{r}
+#establish chembl data frames
+activities <- tbl(chembl_db, "activities")
+molecule_dictionary <- tbl(chembl_db, "molecule_dictionary")
+assays <- tbl(chembl_db, "assays")
+component_sequences <- tbl(chembl_db, "component_sequences")
+target_components <- tbl(chembl_db, "target_components")
+compound_structures <- tbl(chembl_db, "compound_structures")
+
+#get bioactivities for target
+component <- component_sequences %>% filter(accession == target)
+component <- collect(component, n = Inf)
+tid <- target_components %>% filter(component_id == component$component_id)
+tid <- collect(tid, n = Inf)
+assay_ids <- assays %>% filter(tid %in% tid$tid & confidence_score > 7)
+assay_ids <- collect(assay_ids , n = Inf)
+bioactivities <- activities %>% filter(assay_id %in% assay_ids$assay_id & standard_units == "nM" & standard_value > 0) %>%
+  select(molregno, standard_value)
+bioactivities <- collect(bioactivities, n = Inf)
+bioactivities <- bioactivities %>% filter(standard_value > 0) %>% mutate(pIC50 = -log10(standard_value * 10^(-9)))
+molecules <- compound_structures %>% select(molregno, canonical_smiles) %>% filter(molregno %in% bioactivities$molregno)
+molecules <- collect(molecules, n = Inf)
+bioactivities <- left_join(bioactivities, molecules, by = "molregno")
+```
+
+Next, I will calculate the mean bioactivity for each compound, and convert the compounds to circular fingerprints with the circularFP function. Then I split the data into training and test sets
+```{r}
+#find mean bioactivity for each molecule, then remove those containers that are NA
+bioactivities <- bioactivities %>% group_by(molregno, canonical_smiles) %>% 
+  summarize(averagepIC50 = mean(pIC50)) %>% ungroup()
+containersTrain <- parse.smiles(bioactivities$canonical_smiles)
+bioactivities <- bioactivities[!is.na(containersTrain),]
+containersTrain <- containersTrain[!is.na(containersTrain)]
+
+
+circularFP <- function(cmpdlist){
+  fptest <- get.fingerprint(cmpdlist[[1]], type = "circular", fp.mode = 'bit')
+  fpmatrix <- matrix(data = 0, nrow = length(cmpdlist), ncol = attr(fptest, "nbit"))
+  for(i in 1:length(cmpdlist)){
+    fp <- get.fingerprint(cmpdlist[[i]], type = "circular", fp.mode = 'bit')
+    fpmatrix[i, attr(fp, "bits")] <- 1
+  }
+  lostColumns <- nearZeroVar(fpmatrix)
+  fpmatrix <- fpmatrix[, -nearZeroVar(fpmatrix)]
+  attr(fpmatrix, "LostColumns") <- lostColumns
+  
+  return(fpmatrix)
+}
+
+fingerprints <- circularFP(containersTrain)
+nrow(fingerprints) == length(containersTrain)
+
+smp_size <- floor(0.75 * nrow(bioactivities))
+
+## set the seed to make your partition reproductible
+set.seed(123)
+trainIndex <- sample(seq_len(nrow(bioactivities)), size = smp_size)
+x.tr <- fingerprints[trainIndex, ]
+x.te <- fingerprints[-trainIndex, ]
+y.tr <- bioactivities$averagepIC50[trainIndex]
+y.te <- bioactivities$averagepIC50[-trainIndex]
+```
+
+Now the model is trained with caret, using "xgbTree". And then we look at the diagnostic plot....
+```{r}
+ctrl <- trainControl(method = 'repeatedcv', number = 5, repeats = 2, summaryFunction = defaultSummary)
+caret_model <- train(x.tr, y.tr, method = "xgbTree", trControl = ctrl, tuneLength =   5, metric = 'RMSE')
+plot(caret_model)
+plot(y.te, predict(caret_model, x.te), xlim = range(y.te), 
+     ylim = range(y.te), 
+     main = paste("Diagnostic plot for: ", target), xlab = "Data", ylab = "Predicted", cex = 0.2)
+abline(a = 0, b = 1)
+```
+
+
+It looks pretty good. RMSE is 0.7. These models are very useful when trying to build polypharmacology in to a drug.
